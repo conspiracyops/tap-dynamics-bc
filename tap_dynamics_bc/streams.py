@@ -1014,13 +1014,19 @@ class GeneralLedgerEntriesStream(dynamicsBcStream):
             "gl_doc_no": record["documentNumber"]
         }
 
+    # Streams keyed off the triggering GL entry's Document_No, whose own
+    # request_records() already re-fetches everything needed for that
+    # document (and its vendor) in one call - so, like vendor_ledger_entries,
+    # they only need to run once per document number, not once per GL entry.
+    _dedup_by_doc_no_streams = ("vendor_ledger_entries", "vendor_detailed_ledger_entries")
+
     def _sync_children(self, child_context: dict):
         # Document number is used as the foreign key in the vendorLedgerEntries Stream
         # So we want to make sure we only sync once per document number
 
         for child_stream in self.child_streams:
             if child_stream.selected or child_stream.has_selected_descendents:
-                should_not_sync = child_stream.name == "vendor_ledger_entries" and child_context["gl_doc_no"] in self.synced_doc_nos
+                should_not_sync = child_stream.name in self._dedup_by_doc_no_streams and child_context["gl_doc_no"] in self.synced_doc_nos
                 if not should_not_sync:
                     child_stream.sync(context=child_context)
                     self.synced_doc_nos.add(child_context["gl_doc_no"])
@@ -1329,6 +1335,99 @@ class VendorLedgerEntriesStream(DynamicsBCODataStream):
         th.Property("Original_Amt_LCY", th.NumberType),
         th.Property("Vendor_Name", th.StringType),
         th.Property("AuxiliaryIndex1", th.StringType),
+        th.Property("company_id", th.StringType),
+        th.Property("company_name", th.StringType)
+    ).to_dict()
+
+
+class DetailedVendorLedgerEntriesStream(DynamicsBCODataStream):
+    """Define custom stream.
+
+    Warning:
+    Requires enabling an API endpoint with path /DetailedVendorLedgerEntries
+    and objectID = 574. Not every tenant has this published - only select it
+    once confirmed to exist there.
+
+    Each row links back to a Vendor Ledger Entry via Vendor_Ledger_Entry_No.
+    The row with Entry_Type "Application" carries the real closing date in
+    Posting_Date - the parent entry's own Posting_Date is just when it was
+    originally posted.
+    """
+
+    name = "vendor_detailed_ledger_entries"
+    path = "/Company('{company_name}')/DetailedVendorLedgerEntries"
+    primary_keys = ["Entry_No", "company_id"]
+    parent_stream_type = GeneralLedgerEntriesIncrementalStream
+
+    # Same vendor-expansion trick as VendorLedgerEntriesStream above.
+    synced_vendor_nos = set()
+
+    def get_url_params(
+        self, context: Optional[dict], next_page_token
+    ):
+        """Return a dictionary of values to be used in URL parameterization."""
+        params = super().get_url_params(context, next_page_token)
+        vendor_no_filter = getattr(self, "_vendor_no_filter", None)
+        if vendor_no_filter is not None:
+            escaped_vendor_no = re.sub(r"(?<!')'(?!')", "''", vendor_no_filter)
+            params.update({"$filter": f"Vendor_No eq '{escaped_vendor_no}'"})
+        else:
+            escaped_gl_doc_no = re.sub(r"(?<!')'(?!')", "''", context['gl_doc_no'])
+            params.update({"$filter": f"Document_No eq '{escaped_gl_doc_no}'"})
+        return params
+
+    def request_records(self, context: Optional[dict]):
+        self._vendor_no_filter = None
+        seen_keys = set()
+        vendor_nos_to_expand = set()
+
+        for record in super().request_records(context):
+            seen_keys.add((record.get("Entry_No"), record.get("company_id")))
+            vendor_no = record.get("Vendor_No")
+            if vendor_no:
+                vendor_key = (context["company_id"], vendor_no)
+                if vendor_key not in self.synced_vendor_nos:
+                    vendor_nos_to_expand.add(vendor_no)
+            yield record
+
+        try:
+            for vendor_no in vendor_nos_to_expand:
+                self.synced_vendor_nos.add((context["company_id"], vendor_no))
+                self._vendor_no_filter = vendor_no
+                for record in super().request_records(context):
+                    key = (record.get("Entry_No"), record.get("company_id"))
+                    if key in seen_keys:
+                        continue
+                    seen_keys.add(key)
+                    yield record
+        finally:
+            self._vendor_no_filter = None
+
+    schema = th.PropertiesList(
+        th.Property("Entry_No", th.IntegerType),
+        th.Property("Vendor_Ledger_Entry_No", th.IntegerType),
+        th.Property("Posting_Date", th.DateType),
+        th.Property("Entry_Type", th.StringType),
+        th.Property("Document_Type", th.StringType),
+        th.Property("Document_No", th.StringType),
+        th.Property("Vendor_No", th.StringType),
+        th.Property("Excluded_from_calculation", th.BooleanType),
+        th.Property("Currency_Code", th.StringType),
+        th.Property("Amount", th.NumberType),
+        th.Property("Amount_LCY", th.NumberType),
+        th.Property("Debit_Amount", th.NumberType),
+        th.Property("Debit_Amount_LCY", th.NumberType),
+        th.Property("Credit_Amount", th.NumberType),
+        th.Property("Credit_Amount_LCY", th.NumberType),
+        th.Property("Initial_Entry_Due_Date", th.DateType),
+        th.Property("Initial_Entry_Global_Dim_1", th.StringType),
+        th.Property("Initial_Entry_Global_Dim_2", th.StringType),
+        th.Property("Posting_Group", th.StringType),
+        th.Property("Source_Code", th.StringType),
+        th.Property("Reason_Code", th.StringType),
+        th.Property("User_ID", th.StringType),
+        th.Property("Unapplied", th.BooleanType),
+        th.Property("Unapplied_by_Entry_No", th.IntegerType),
         th.Property("company_id", th.StringType),
         th.Property("company_name", th.StringType)
     ).to_dict()
