@@ -1022,14 +1022,18 @@ class GeneralLedgerEntriesStream(dynamicsBcStream):
 
     def _sync_children(self, child_context: dict):
         # Document number is used as the foreign key in the vendorLedgerEntries Stream
-        # So we want to make sure we only sync once per document number
+        # So we want to make sure we only sync once per document number, per stream -
+        # synced_doc_nos is shared across all child streams of this parent, so the key
+        # must include the stream name too, or the second stream to run for a given
+        # doc_no would see it already marked "synced" by the first and never run at all.
 
         for child_stream in self.child_streams:
             if child_stream.selected or child_stream.has_selected_descendents:
-                should_not_sync = child_stream.name in self._dedup_by_doc_no_streams and child_context["gl_doc_no"] in self.synced_doc_nos
+                dedup_key = (child_stream.name, child_context["gl_doc_no"])
+                should_not_sync = child_stream.name in self._dedup_by_doc_no_streams and dedup_key in self.synced_doc_nos
                 if not should_not_sync:
                     child_stream.sync(context=child_context)
-                    self.synced_doc_nos.add(child_context["gl_doc_no"])
+                    self.synced_doc_nos.add(dedup_key)
 
 
 class GeneralLedgerEntriesIncrementalStream(GeneralLedgerEntriesStream):
