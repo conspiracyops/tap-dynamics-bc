@@ -33,7 +33,7 @@ from tap_dynamics_bc.streams import (
     VendorPaymentJournalsStream,
     PaymentTermsStream,
     VendorLedgerEntriesStream,
-    DetailedVendorLedgerEntriesStream
+    DetailedVendorLedgerEntriesStream,
     ClosingGeneralLedgerEntriesStream,
 )
 
