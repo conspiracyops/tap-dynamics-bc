@@ -9,6 +9,7 @@ from tap_dynamics_bc.auth import TapDynamicsBCAuth
 from tap_dynamics_bc.discover import discover_dynamic_streams
 
 from tap_dynamics_bc.streams import (
+    AccountingPeriodsStream,
     AccountsStream,
     CompaniesStream,
     CompanyInformationStream,
@@ -22,6 +23,8 @@ from tap_dynamics_bc.streams import (
     SalesOrdersStream,
     GeneralLedgerEntriesStream,
     GeneralLedgerEntriesIncrementalStream,
+    BalanceSheetGeneralLedgerEntriesStream,
+    IncomeStatementGeneralLedgerEntriesStream,
     GLEntriesDimensionsStream,
     DimensionsStream,
     DimensionValuesStream,
@@ -31,6 +34,7 @@ from tap_dynamics_bc.streams import (
     PaymentTermsStream,
     VendorLedgerEntriesStream,
     DetailedVendorLedgerEntriesStream
+    ClosingGeneralLedgerEntriesStream,
 )
 
 STREAM_TYPES = [
@@ -47,6 +51,8 @@ STREAM_TYPES = [
     SalesOrdersStream,
     GeneralLedgerEntriesStream,
     GeneralLedgerEntriesIncrementalStream,
+    BalanceSheetGeneralLedgerEntriesStream,
+    IncomeStatementGeneralLedgerEntriesStream,
     GLEntriesDimensionsStream,
     DimensionsStream,
     DimensionValuesStream,
@@ -56,6 +62,8 @@ STREAM_TYPES = [
     PaymentTermsStream,
     VendorLedgerEntriesStream,
     DetailedVendorLedgerEntriesStream
+    AccountingPeriodsStream,
+    ClosingGeneralLedgerEntriesStream,
 ]
 
 
