@@ -1604,6 +1604,22 @@ class AccountingPeriodsStream(dynamicsBcStream):
         th.Property("company_name", th.StringType),
     ).to_dict()
 
+
+def _recent_activity_window_start(config: dict) -> datetime.datetime:
+    """Same rolling window GeneralLedgerEntriesStream uses for non-initial syncs.
+
+    Used to bound the vendor-expansion lookups below to recent activity
+    instead of a vendor's entire history - see the streams' own comments.
+    """
+    report_periods = config.get("report_periods", 3)
+    today = datetime.date.today()
+    beginning_of_month = today.replace(day=1)
+    beginning_of_month = datetime.datetime.combine(
+        beginning_of_month, datetime.datetime.min.time()
+    )
+    return beginning_of_month - relativedelta(months=report_periods - 1)
+
+
 class VendorLedgerEntriesStream(DynamicsBCODataStream):
     """Define custom stream."""
 
@@ -1624,8 +1640,10 @@ class VendorLedgerEntriesStream(DynamicsBCODataStream):
     # entries get touched. So the Document_No filter below (keyed off whichever
     # GL entry triggered this sync) can miss the invoice's updated balance
     # entirely. Once we find ANY vendor ledger entry for the triggering
-    # Document_No, we also re-fetch that vendor's entries by Vendor_No, so
-    # sibling entries closed by the same application are captured too.
+    # Document_No, we also re-fetch that vendor's entries by Vendor_No,
+    # bounded to Open eq true - only entries still open can still have their
+    # Remaining_Amount change, so this stays cheap instead of re-pulling a
+    # vendor's entire multi-year history on every run.
     synced_vendor_nos = set()
 
     def get_url_params(
@@ -1636,7 +1654,9 @@ class VendorLedgerEntriesStream(DynamicsBCODataStream):
         vendor_no_filter = getattr(self, "_vendor_no_filter", None)
         if vendor_no_filter is not None:
             escaped_vendor_no = re.sub(r"(?<!')'(?!')", "''", vendor_no_filter)
-            params.update({"$filter": f"Vendor_No eq '{escaped_vendor_no}'"})
+            params.update({
+                "$filter": f"Vendor_No eq '{escaped_vendor_no}' and Open eq true"
+            })
         else:
             # Only replace single quotes that are not already doubled
             escaped_gl_doc_no = re.sub(r"(?<!')'(?!')", "''", context['gl_doc_no'])
@@ -1722,7 +1742,12 @@ class DetailedVendorLedgerEntriesStream(DynamicsBCODataStream):
     primary_keys = ["Entry_No", "company_id"]
     parent_stream_type = GeneralLedgerEntriesIncrementalStream
 
-    # Same vendor-expansion trick as VendorLedgerEntriesStream above.
+    # Same vendor-expansion trick as VendorLedgerEntriesStream above, but
+    # bounded by Posting_Date instead of Open: rows here are immutable
+    # inserts (a new application always posts a brand-new row with a current
+    # Posting_Date), so restricting to the same rolling window used for the
+    # parent GL sync is enough to catch new activity without re-pulling a
+    # vendor's full history.
     synced_vendor_nos = set()
 
     def get_url_params(
@@ -1733,7 +1758,14 @@ class DetailedVendorLedgerEntriesStream(DynamicsBCODataStream):
         vendor_no_filter = getattr(self, "_vendor_no_filter", None)
         if vendor_no_filter is not None:
             escaped_vendor_no = re.sub(r"(?<!')'(?!')", "''", vendor_no_filter)
-            params.update({"$filter": f"Vendor_No eq '{escaped_vendor_no}'"})
+            window_start = _recent_activity_window_start(self.config)
+            window_start_str = window_start.strftime("%Y-%m-%d")
+            params.update({
+                "$filter": (
+                    f"Vendor_No eq '{escaped_vendor_no}' "
+                    f"and Posting_Date ge {window_start_str}"
+                )
+            })
         else:
             escaped_gl_doc_no = re.sub(r"(?<!')'(?!')", "''", context['gl_doc_no'])
             params.update({"$filter": f"Document_No eq '{escaped_gl_doc_no}'"})
