@@ -61,7 +61,7 @@ STREAM_TYPES = [
     VendorPaymentJournalsStream,
     PaymentTermsStream,
     VendorLedgerEntriesStream,
-    DetailedVendorLedgerEntriesStream
+    DetailedVendorLedgerEntriesStream,
     AccountingPeriodsStream,
     ClosingGeneralLedgerEntriesStream,
 ]
