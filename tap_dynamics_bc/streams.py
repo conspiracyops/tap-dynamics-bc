@@ -1792,7 +1792,9 @@ class DetailedVendorLedgerEntriesStream(DynamicsBCODataStream):
         th.Property("Unapplied", th.BooleanType),
         th.Property("Unapplied_by_Entry_No", th.IntegerType),
         th.Property("company_id", th.StringType),
-        th.Property("company_name", th.StringType)
+        th.Property("company_name", th.StringType),
+    ).to_dict()
+
 class ClosingGeneralLedgerEntriesStream(DynamicsBCAnalyticsStream):
 
     name = "closing_general_ledger_entries"
